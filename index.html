@@ -50,10 +50,39 @@ out+=recurring.map(r=>{let st=maintenanceState(r,month),related=jobs.filter(j=>j
 }
 
 if(tab==='Obras'||tab==='Mis obras'){let archived=works.filter(archiveWork),visible=works.filter(w=>!archiveWork(w));out=admin()?`<div class="card"><h2>Nueva obra</h2><input id="wn" placeholder="Nombre de la obra"><input id="wc" placeholder="Cliente"><input id="wa" placeholder="Dirección"><button onclick="newWork()">Crear obra</button></div>`:'';out+=visible.map(w=>workPanel(w)).join('')||'<div class="card">Sin obras activas.</div>';if(!tech())out+=`<div class="card"><h2>Historial de obras finalizadas (${archived.length})</h2><p class="muted">Las obras finalizadas permanecen en verde durante su mes de cierre y pasan aquí al comenzar el siguiente mes. No se eliminan sus datos.</p><label>Consultar mes de finalización</label><input type="month" value="${esc(shownMonth)}" onchange="shownMonth=this.value;render()"></div>`+archived.filter(w=>!closeDate(w)||closeDate(w).startsWith(shownMonth)).map(w=>workPanel(w,true)).join('');}
-function workPanel(w,historical=false){return `<div class="card ${w.closed?'done':''}"><h2>${esc(w.name)}</h2><p>📍 ${esc(w.address||'')} · ${esc(w.client||'')}</p><p>${w.closed?'🟢 Obra finalizada'+(closeDate(w)?' · '+esc(closeDate(w)):''):'Obra activa'}${historical?' · Historial':''}</p>${cardDetails('work',w.id)}<h3>Días registrados</h3>${days.filter(d=>d.work_id===w.id).map(d=>`<p>${esc(d.work_date)} · ${esc(assignedNames(d))} · ${esc(status(d.state))} · ${workDayPhotos(w.id,d.work_date).length} foto(s)${admin()&&!historical?` <button class="danger mini" onclick="removeWorkDay('${d.id}')">Eliminar día</button>`:''}</p>`).join('')||'<p class="muted">Sin días asignados.</p>'}${admin()&&!w.closed&&!historical?`<label>Asignar día</label><input type="date" id="wd-${w.id}" value="${selectedDay}"><div>${team.filter(t=>t.role==='technician').map(t=>`<label><input class="inlinecheck" type="checkbox" id="check-${w.id}-${t.id}"> ${esc(t.display_name)}</label>`).join(' ')}</div><div class="actions"><button onclick="assignWork('${w.id}')">Asignar técnicos</button><button class="secondary" onclick="closeWork('${w.id}')">Finalizar obra</button><button class="danger" onclick="remove('works','${w.id}')">Eliminar obra</button></div>`:''}</div>`}
+
+function journalPhotoDate(p){const m=String(p.storage_path||'').match(/\\/dias\\/(\\d{4}-\\d{2}-\\d{2})\\//);return m?m[1]:null}
+function workJournal(w){
+ const ds=days.filter(d=>d.work_id===w.id).sort((a,b)=>String(b.work_date).localeCompare(String(a.work_date)));
+ const ns=notes.filter(n=>n.work_id===w.id&&!String(n.body||'').startsWith(closurePrefix));
+ const ps=photos.filter(p=>p.work_id===w.id);
+ let out=ds.map(d=>{
+  const key='jday-'+d.id,open=openDetails.has(key),date=d.work_date;
+  const pics=ps.filter(p=>journalPhotoDate(p)===date);
+  const comments=ns.filter(n=>String(n.created_at||'').slice(0,10)===date);
+  return `<div class="activity"><button class="secondary" onclick="toggle('${key}')">${esc(date)} · ${esc(assignedNames(d))} · ${pics.length} foto(s) · ${open?'Ocultar':'Ver'} jornada</button>${open?`<p><b>Comentarios registrados ese día</b></p>${comments.map(n=>`<p><b>${esc(nameOf(n.author_id))}:</b> ${esc(n.body)}</p>`).join('')||'<p class="muted">Sin comentarios.</p>'}<div class="photos" id="jgallery-${key}"></div>`:''}</div>`;
+ }).join('');
+ const old=ps.filter(p=>!journalPhotoDate(p)||!ds.some(d=>d.work_date===journalPhotoDate(p)));
+ const other=ns.filter(n=>!ds.some(d=>d.work_date===String(n.created_at||'').slice(0,10)));
+ const key='jold-'+w.id,open=openDetails.has(key);
+ if(old.length||other.length)out+=`<div class="activity"><button class="secondary" onclick="toggle('${key}')">Fotografías anteriores o sin jornada identificada (${old.length}) · ${open?'Ocultar':'Ver'}</button>${open?`${other.map(n=>`<p><b>${esc(nameOf(n.author_id))}:</b> ${esc(n.body)} · ${esc(String(n.created_at||'').slice(0,10))}</p>`).join('')}<div class="photos" id="jgallery-${key}"></div>`:''}</div>`;
+ return '<h3>Jornadas de obra</h3><p class="muted">Las fotografías nuevas se muestran por día. Las antiguas sin fecha identificable se conservan aparte. Los comentarios se agrupan por su fecha de registro.</p>'+ (out||'<p class="muted">Sin jornadas.</p>');
+}
+async function loadJournalGalleries(){
+ for(const key of openDetails){
+  if(!key.startsWith('jday-')&&!key.startsWith('jold-'))continue;
+  const el=$('jgallery-'+key);if(!el)continue;
+  let ps=[];
+  if(key.startsWith('jday-')){const d=days.find(x=>x.id===key.slice(5));if(d)ps=photos.filter(p=>p.work_id===d.work_id&&journalPhotoDate(p)===d.work_date)}
+  else{const id=key.slice(5);ps=photos.filter(p=>p.work_id===id&&(!journalPhotoDate(p)||!days.some(d=>d.work_id===id&&d.work_date===journalPhotoDate(p))))}
+  el.innerHTML='';for(const p of ps){const {data,error}=await sb.storage.from('fotos-trabajos').createSignedUrl(p.storage_path,300);if(error)continue;const a=document.createElement('a');a.href=data.signedUrl;a.target='_blank';a.rel='noopener noreferrer';const img=document.createElement('img');img.src=data.signedUrl;img.alt='Fotografía de obra';a.append(img);el.append(a)}
+ }
+}
+
+function workPanel(w,historical=false){return `<div class="card ${w.closed?'done':''}"><h2>${esc(w.name)}</h2><p>📍 ${esc(w.address||'')} · ${esc(w.client||'')}</p><p>${w.closed?'🟢 Obra finalizada'+(closeDate(w)?' · '+esc(closeDate(w)):''):'Obra activa'}${historical?' · Historial':''}</p>${workJournal(w)}<h3>Días registrados</h3>${days.filter(d=>d.work_id===w.id).map(d=>`<p>${esc(d.work_date)} · ${esc(assignedNames(d))} · ${esc(status(d.state))} · ${workDayPhotos(w.id,d.work_date).length} foto(s)${admin()&&!historical?` <button class="danger mini" onclick="removeWorkDay('${d.id}')">Eliminar día</button>`:''}</p>`).join('')||'<p class="muted">Sin días asignados.</p>'}${admin()&&!w.closed&&!historical?`<label>Asignar día</label><input type="date" id="wd-${w.id}" value="${selectedDay}"><div>${team.filter(t=>t.role==='technician').map(t=>`<label><input class="inlinecheck" type="checkbox" id="check-${w.id}-${t.id}"> ${esc(t.display_name)}</label>`).join(' ')}</div><div class="actions"><button onclick="assignWork('${w.id}')">Asignar técnicos</button><button class="secondary" onclick="closeWork('${w.id}')">Finalizar obra</button><button class="danger" onclick="remove('works','${w.id}')">Eliminar obra</button></div>`:''}</div>`}
 
 if(tab==='Avisos pendientes'){let ongoing=ongoingItems(),unresolved=alerts.filter(a=>!a.resolved);out=`<h2>Avisos pendientes (${ongoing.length+unresolved.length})</h2><p class="muted">${ongoing.length} trabajos en «Continúa» · ${unresolved.length} avisos sin resolver.</p>`+ongoing.map(x=>`<div class="card ongoing"><b>${x.kind==='work'?'🏗️ Obra: ':''}${esc(x.name)}</b><p>${esc(x.client)} · ${esc(x.date||'Sin fecha')} · ${esc(x.tech)}</p><p>🟠 Continúa</p></div>`).join('')+unresolved.slice().reverse().map(a=>`<div class="card"><b>${esc(a.kind)} · ${esc(nameOf(a.author_id))}</b><p>${esc(a.body)}</p><p>⚠️ Pendiente</p>${admin()?`<button onclick="resolveAlert('${a.id}')">Marcar resuelto</button>`:''}</div>`).join('');if(!ongoing.length&&!unresolved.length)out+='<div class="card">Sin avisos pendientes.</div>'} 
-$('view').innerHTML=out;for(let k of openDetails){let m=k.match(/^(job|work)(.+)$/);if(m)loadGallery(m[1],m[2])}}
+$('view').innerHTML=out;for(let k of openDetails){let m=k.match(/^(job|work)(.+)$/);if(m)loadGallery(m[1],m[2])}loadJournalGalleries()}
 async function run(action){try{say('Guardando…');await action();await refresh()}catch(e){err(e)}}
 async function insert(table,row){let {error}=await sb.from(table).insert(row);if(error)throw error}
 async function update(table,id,row){let {error}=await sb.from(table).update(row).eq('id',id);if(error)throw error}
