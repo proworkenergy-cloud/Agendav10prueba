@@ -51,7 +51,7 @@ out+=recurring.map(r=>{let st=maintenanceState(r,month),related=jobs.filter(j=>j
 
 if(tab==='Obras'||tab==='Mis obras'){let archived=works.filter(archiveWork),visible=works.filter(w=>!archiveWork(w));out=admin()?`<div class="card"><h2>Nueva obra</h2><input id="wn" placeholder="Nombre de la obra"><input id="wc" placeholder="Cliente"><input id="wa" placeholder="Dirección"><button onclick="newWork()">Crear obra</button></div>`:'';out+=visible.map(w=>workPanel(w)).join('')||'<div class="card">Sin obras activas.</div>';if(!tech())out+=`<div class="card"><h2>Historial de obras finalizadas (${archived.length})</h2><p class="muted">Las obras finalizadas permanecen en verde durante su mes de cierre y pasan aquí al comenzar el siguiente mes. No se eliminan sus datos.</p><label>Consultar mes de finalización</label><input type="month" value="${esc(shownMonth)}" onchange="shownMonth=this.value;render()"></div>`+archived.filter(w=>!closeDate(w)||closeDate(w).startsWith(shownMonth)).map(w=>workPanel(w,true)).join('');}
 
-function journalPhotoDate(p){const m=String(p.storage_path||'').match(/\\/dias\\/(\\d{4}-\\d{2}-\\d{2})\\//);return m?m[1]:null}
+function journalPhotoDate(p){const m=String(p.storage_path||'').match(/\/dias\/(\d{4}-\d{2}-\d{2})\//);return m?m[1]:null}
 function workJournal(w){
  const ds=days.filter(d=>d.work_id===w.id).sort((a,b)=>String(b.work_date).localeCompare(String(a.work_date)));
  const ns=notes.filter(n=>n.work_id===w.id&&!String(n.body||'').startsWith(closurePrefix));
